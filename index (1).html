@@ -1,0 +1,1199 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Businessplan Academy – AZAV-Kalkulator</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-presets="react">
+const { useState, useRef, useEffect } = React;
+const XLSX = window.XLSX;
+
+
+
+
+const BDKS_KATEGORIEN = [
+  { group: "IT / Informatik", code: "43102", label: "43102 – Informatik Fachkraft", satz: 11.19 },
+  { group: "IT / Informatik", code: "43103", label: "43103 – Informatik Spezialist", satz: 12.79 },
+  { group: "IT / Informatik", code: "43104", label: "43104 – Informatik Experte", satz: 14.83 },
+  { group: "IT / Informatik", code: "43313", label: "43313 – IT-Netzwerktechnik Spezialist", satz: 12.79 },
+  { group: "IT / Informatik", code: "43343", label: "43343 – IT-Systemadministration Spezialist", satz: 12.79 },
+  { group: "IT / Informatik", code: "43413", label: "43413 – Softwareentwicklung Spezialist", satz: 12.79 },
+  { group: "IT / Informatik", code: "43414", label: "43414 – Softwareentwicklung Experte", satz: 14.83 },
+  { group: "Kaufmännisch / BWL", code: "71302", label: "71302 – Kaufm. Betriebswirtschaft Fachkraft", satz: 7.11 },
+  { group: "Kaufmännisch / BWL", code: "71303", label: "71303 – Kaufm. Betriebswirtschaft Spezialist", satz: 8.90 },
+  { group: "Kaufmännisch / BWL", code: "71402", label: "71402 – Büro- und Sekretariatskräfte Fachkraft", satz: 7.11 },
+  { group: "Kaufmännisch / BWL", code: "71512", label: "71512 – Personalentwicklung Fachkraft", satz: 8.13 },
+  { group: "Kaufmännisch / BWL", code: "71513", label: "71513 – Personalentwicklung Spezialist", satz: 8.90 },
+  { group: "Kaufmännisch / BWL", code: "72212", label: "72212 – Buchhaltung Fachkraft", satz: 8.49 },
+  { group: "Kaufmännisch / BWL", code: "72213", label: "72213 – Buchhaltung Spezialist", satz: 8.87 },
+  { group: "Kaufmännisch / BWL", code: "72233", label: "72233 – Controlling Spezialist", satz: 8.87 },
+  { group: "Marketing / Vertrieb", code: "92112", label: "92112 – Werbung und Marketing Fachkraft", satz: 7.54 },
+  { group: "Marketing / Vertrieb", code: "92113", label: "92113 – Werbung und Marketing Spezialist", satz: 8.37 },
+  { group: "Marketing / Vertrieb", code: "92114", label: "92114 – Werbung und Marketing Experte", satz: 6.64 },
+  { group: "Marketing / Vertrieb", code: "92133", label: "92133 – Kundenmanagement Spezialist", satz: 8.37 },
+  { group: "Marketing / Vertrieb", code: "92203", label: "92203 – Öffentlichkeitsarbeit Spezialist", satz: 8.37 },
+  { group: "Recht / Verwaltung", code: "73202", label: "73202 – Öffentliche Verwaltung Fachkraft", satz: 7.67 },
+  { group: "Recht / Verwaltung", code: "73203", label: "73203 – Öffentliche Verwaltung Spezialist", satz: 9.52 },
+  { group: "Recht / Verwaltung", code: "73183", label: "73183 – Rechtsberatung Spezialist", satz: 9.72 },
+  { group: "Technik / Gebäude", code: "34102", label: "34102 – Gebäudetechnik Fachkraft", satz: 9.25 },
+  { group: "Technik / Gebäude", code: "34212", label: "34212 – Sanitär, Heizung, Klima Fachkraft", satz: 9.68 },
+  { group: "Pädagogik / Bildung", code: "84213", label: "84213 – Lehrkräfte berufsbildende Fächer Spezialist", satz: 8.72 },
+  { group: "Pädagogik / Bildung", code: "84223", label: "84223 – Betriebliche Ausbildung Spezialist", satz: 8.72 },
+  { group: "Pädagogik / Bildung", code: "84404", label: "84404 – Erwachsenenbildung Experte", satz: 8.21 },
+];
+
+const ZUSCHLAEGE = [0, 5, 10, 15, 20, 24, 25, 30];
+
+const SYSTEM_PROMPT = `Du bist ein AZAV-Kalkulationsexperte für die Businessplan Academy.
+3-Ebenen-Modell: E1=direkte Kosten/Durchlauf, E2=Maßnahmen-Overhead amortisiert, E3=Firmen-Gemeinkosten prozentual.
+Gewinn max 10% auf Kostenbasis (E1+E2+E3), NICHT auf Endpreis.
+Grün-Grenze = Ziel-B-DKS × UE. Ziel-B-DKS = B-DKS-Satz × (1+Zuschlag%). Darüber +25% = BA-Zustimmung nötig.
+Antworte auf Deutsch, max 150 Wörter, eine Folgefrage.`;
+
+const fmt = (n) => new Intl.NumberFormat("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0);
+const fmtE = (n) => `${fmt(n)} €`;
+
+function calcItemBetrag(item, ue, dpj, lj, tn) {
+  const b = parseFloat(item.betrag) || 0;
+  const t = item.kostentyp || "pauschale";
+  if (t === "pro_ue") return b * ue;           // b €/UE × UE = Durchlaufkosten
+  if (t === "pro_tn") return b * (tn || 1);    // b €/TN × TN = Durchlaufkosten
+  if (t === "laufzeit") {
+    const m = item.laufzeit_modus || "einmalig";
+    if (m === "einmalig") return dpj * lj > 0 ? b / (dpj * lj) : 0;
+    if (m === "jaehrlich") return dpj > 0 ? b / dpj : 0;
+    if (m === "update") {
+      const z = parseFloat(item.laufzeit_zyklus) || 3;
+      return dpj * z > 0 ? b / (dpj * z) : 0;
+    }
+  }
+  return b; // pauschale: b € pro Durchlauf
+}
+
+function calcMassnahme(m) {
+  if (!m) return null;
+  const ue = parseFloat(m.unterrichtseinheiten) || 1;
+  const dpj = parseFloat(m.durchlaeufe_jahr) || 1;
+  const lj = parseFloat(m.laufzeit_jahre) || 3;
+  const tn_val = parseFloat(m.teilnehmer) || 1;
+  const e1 = (m.e1_items || []).reduce((s, i) => s + calcItemBetrag(i, ue, dpj, lj, tn_val), 0);
+  const e2 = (m.e2_items || []).reduce((s, i) => s + calcItemBetrag(i, ue, dpj, lj, tn_val), 0);
+  const e3 = (e1 + e2) * ((parseFloat(m.e3_prozent) || 0) / 100);
+  const kosten = e1 + e2 + e3;
+  const gp = Math.min(parseFloat(m.gewinn_prozent) || 0, 10);
+  const tn = tn_val;
+
+  // B-DKS zuerst berechnen — Gewinn-Basis hängt davon ab
+  const bdkat = BDKS_KATEGORIEN.find(k => k.code === m.bdks_kategorie);
+  const bdks = bdkat ? bdkat.satz : 0;
+  const zp = parseFloat(m.bdks_zuschlag) || 0;
+  const ziel = bdks * (1 + zp / 100);
+  const s25 = ziel * 1.25;
+
+  // Normalpreis = Ziel-B-DKS × UE × TN (Grün-Grenze als €-Betrag)
+  // Gewinn-Regel: max. 10% aber IMMER nur auf min(Kosten, Normalpreis)
+  // → in der Gelb/Rot-Zone wird der über Normalpreis hinausgehende Kostenanteil
+  //   nicht in die Gewinnbasis einbezogen
+  const normalpreis_gesamt = ziel * ue * tn;
+  const gewinn_basis = (normalpreis_gesamt > 0)
+    ? Math.min(kosten, normalpreis_gesamt)
+    : kosten;
+  const gewinn = gewinn_basis * (gp / 100);
+  const gewinn_gedeckelt = normalpreis_gesamt > 0 && kosten > normalpreis_gesamt;
+
+  const endpreis = kosten + gewinn;
+  const gebuehr_tn = endpreis / tn;
+  const pue = gebuehr_tn / ue;
+
+  const maxG = ziel * ue;
+  const maxS = s25 * ue;
+  let ampel = "grau", uepct = 0;
+  if (ziel > 0) {
+    uepct = ((pue - ziel) / ziel) * 100;
+    ampel = pue <= ziel ? "gruen" : pue <= s25 ? "gelb" : "rot";
+  }
+  return { e1, e2, e3, kosten, gewinn, gewinn_basis, gewinn_gedeckelt, normalpreis_gesamt, endpreis, pue, ue, bdks, ziel, s25, maxG, maxS, ampel, uepct, gebuehr: gebuehr_tn, tn, dpj, lj, gp };
+}
+
+// Styles
+const iS = { width: "100%", padding: "8px 11px", border: "1px solid #ddd9d2", borderRadius: 7, fontSize: 13, background: "#faf9f7", color: "#1c1a17", outline: "none" };
+const iconBtn = { background: "none", border: "none", color: "#b8b2aa", cursor: "pointer", fontSize: 14, padding: "4px 6px", borderRadius: 4, flexShrink: 0 };
+const addBtn = { padding: "7px 13px", border: "1px dashed #c8c3bb", borderRadius: 7, background: "transparent", color: "#7a756c", cursor: "pointer", fontSize: 12, fontWeight: 500, alignSelf: "flex-start" };
+
+// E1: Kostentypen (direkte Durchlaufkosten)
+const KT_E1 = {
+  pauschale: { label: "Pauschale (€/Durchlauf)", bg: "#eff6ff", text: "#1d4ed8", border: "#bfdbfe" },
+  pro_ue:    { label: "€ pro UE",                bg: "#f0fdf4", text: "#15803d", border: "#bbf7d0" },
+  pro_tn:    { label: "€ pro Teilnehmer",        bg: "#fff7ed", text: "#c2410c", border: "#fed7aa" },
+};
+// E2: Amortisierungsmodi (Maßnahmen-Overhead)
+const KT_E2_MODUS = {
+  einmalig:  { label: "Einmalig (÷ Gesamtlaufzeit)", bg: "#fdf4ff", text: "#7e22ce", border: "#e9d5ff" },
+  jaehrlich: { label: "Jährlich (÷ Durchl./Jahr)",   bg: "#fdf4ff", text: "#7e22ce", border: "#e9d5ff" },
+  update:    { label: "Update-Zyklus",                bg: "#fdf4ff", text: "#7e22ce", border: "#e9d5ff" },
+};
+// Keep KT_CFG as alias for ItemRow backward compat
+const KT_CFG = KT_E1;
+
+function E1ItemRow({ item, idx, onChange, onRemove, ue, dpj, lj, tn }) {
+  const bdl = calcItemBetrag(item, ue, dpj, lj, tn);
+  const bdl_tn = item.kostentyp === "pro_tn" ? (parseFloat(item.betrag) || 0) : bdl / (tn || 1);
+  const kt = item.kostentyp || "pauschale";
+  const kc = KT_E1[kt] || KT_E1.pauschale;
+  return (
+    <div style={{ background: "#faf9f7", border: "1px solid #e8e4de", borderRadius: 8, padding: "10px 12px" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <input style={{ ...iS, flex: 1 }} placeholder="Bezeichnung" value={item.label || ""} onChange={e => onChange(idx, "label", e.target.value)} />
+        <input style={{ ...iS, width: 130 }} type="number"
+          placeholder={kt === "pro_ue" ? "Satz (€/UE)" : kt === "pro_tn" ? "Betrag (€/TN)" : "Betrag (€)"}
+          value={item.betrag || ""} onChange={e => onChange(idx, "betrag", e.target.value)} />
+        <button onClick={() => onRemove(idx)} style={iconBtn}>✕</button>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <select style={{ ...iS, width: 200, fontSize: 12 }} value={kt} onChange={e => onChange(idx, "kostentyp", e.target.value)}>
+          {Object.entries(KT_E1).map(([id, c]) => <option key={id} value={id}>{c.label}</option>)}
+        </select>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ background: "#f5f5f4", border: "1px solid #e5e0d9", borderRadius: 6, padding: "3px 9px", fontSize: 11, color: "#7a756c", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" }}>
+            {fmtE(bdl)} / Durchlauf
+          </div>
+          <div style={{ background: kc.bg, border: `1px solid ${kc.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 12, color: kc.text, fontWeight: 700, fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" }}>
+            = {fmtE(bdl_tn)} / TN
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function E2ItemRow({ item, idx, onChange, onRemove, dpj, lj, tn }) {
+  const modus = item.laufzeit_modus || "einmalig";
+  const mc = KT_E2_MODUS[modus];
+  const b = parseFloat(item.betrag) || 0;
+  // Calculate amortized amount per Durchlauf
+  let bdl = 0;
+  if (modus === "einmalig") bdl = dpj * lj > 0 ? b / (dpj * lj) : 0;
+  else if (modus === "jaehrlich") bdl = dpj > 0 ? b / dpj : 0;
+  else if (modus === "update") {
+    const z = parseFloat(item.laufzeit_zyklus) || 3;
+    bdl = dpj * z > 0 ? b / (dpj * z) : 0;
+  }
+  const bdl_tn = bdl / (tn || 1);
+
+  // Label showing the divisor logic
+  const divisorLabel = modus === "einmalig"
+    ? `÷ (${dpj} DL/J × ${lj} J = ${dpj*lj} DL)`
+    : modus === "jaehrlich"
+    ? `÷ ${dpj} DL/Jahr`
+    : `÷ (${dpj} DL/J × ${parseFloat(item.laufzeit_zyklus)||3} J Zyklus)`;
+
+  return (
+    <div style={{ background: "#faf9f7", border: "1px solid #e8e4de", borderRadius: 8, padding: "10px 12px" }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+        <input style={{ ...iS, flex: 1 }} placeholder="Bezeichnung" value={item.label || ""} onChange={e => onChange(idx, "label", e.target.value)} />
+        <input style={{ ...iS, width: 130 }} type="number" placeholder="Gesamtbetrag (€)" value={item.betrag || ""} onChange={e => onChange(idx, "betrag", e.target.value)} />
+        <button onClick={() => onRemove(idx)} style={iconBtn}>✕</button>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <select style={{ ...iS, width: 220, fontSize: 12 }} value={modus} onChange={e => onChange(idx, "laufzeit_modus", e.target.value)}>
+          {Object.entries(KT_E2_MODUS).map(([id, c]) => <option key={id} value={id}>{c.label}</option>)}
+        </select>
+        {modus === "update" && (
+          <input style={{ ...iS, width: 110 }} type="number" placeholder="Zyklus (Jahre)" value={item.laufzeit_zyklus || ""} onChange={e => onChange(idx, "laufzeit_zyklus", e.target.value)} />
+        )}
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+          <div style={{ background: "#f5f5f4", border: "1px solid #e5e0d9", borderRadius: 6, padding: "3px 9px", fontSize: 11, color: "#7a756c", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" }}>
+            {fmtE(b)} {divisorLabel} = {fmtE(bdl)} / DL
+          </div>
+          <div style={{ background: mc.bg, border: `1px solid ${mc.border}`, borderRadius: 6, padding: "3px 9px", fontSize: 12, color: mc.text, fontWeight: 700, fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap" }}>
+            = {fmtE(bdl_tn)} / TN
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function BudgetBox({ calc }) {
+  if (!calc || calc.ampel === "grau") return null;
+  const { maxG, endpreis, pue, ziel, ue, ampel, uepct } = calc;
+  const diff = endpreis - maxG;
+  const AC = { gruen: { c: "#15803d", bg: "#f0fdf4", bd: "#86efac", bar: "#22c55e" }, gelb: { c: "#92400e", bg: "#fffbeb", bd: "#fcd34d", bar: "#f59e0b" }, rot: { c: "#991b1b", bg: "#fef2f2", bd: "#fca5a5", bar: "#ef4444" } }[ampel];
+  const barMax = Math.max(endpreis, maxG) * 1.05;
+  return (
+    <div style={{ background: AC.bg, border: `1px solid ${AC.bd}`, borderRadius: 10, padding: "18px 20px", marginBottom: 16 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: AC.c, marginBottom: 14 }}>
+        {{ gruen: "✅", gelb: "⚠️", rot: "🚫" }[ampel]} B-DKS Budgetvergleich
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 14 }}>
+        <div style={{ background: "#fff", borderRadius: 8, padding: "12px 16px", border: "1px solid #e5e7eb" }}>
+          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 6, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Max. erlaubt (Grün-Grenze)</div>
+          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 700, color: "#15803d" }}>{fmtE(maxG)}</div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>{fmt(ziel)} €/UE × {ue} UE</div>
+          <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>Ziel-B-DKS — kein BA-Aufwand</div>
+        </div>
+        <div style={{ background: "#fff", borderRadius: 8, padding: "12px 16px", border: `1px solid ${AC.bd}` }}>
+          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 6, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>Kalkulierter Endpreis</div>
+          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 22, fontWeight: 700, color: AC.c }}>{fmtE(endpreis)}</div>
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 4 }}>{fmt(pue)} €/UE × {ue} UE</div>
+          <div style={{ fontSize: 11, color: AC.c, marginTop: 2, fontWeight: 600 }}>
+            {uepct > 0 ? `+${fmt(uepct)}% über Ziel-B-DKS` : `${fmt(Math.abs(uepct))}% unter Ziel-B-DKS`}
+          </div>
+        </div>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 12 }}>
+        {[["Max. erlaubt", maxG, "#22c55e", "#15803d"], ["Dein Preis", endpreis, AC.bar, AC.c]].map(([l, v, bc, tc]) => (
+          <div key={l}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6b7280", marginBottom: 3 }}>
+              <span>{l}</span><span style={{ color: tc, fontWeight: 600 }}>{fmtE(v)}</span>
+            </div>
+            <div style={{ background: "#e5e7eb", borderRadius: 4, height: 10, overflow: "hidden" }}>
+              <div style={{ width: `${Math.min((v / barMax) * 100, 100)}%`, height: "100%", background: bc, borderRadius: 4, transition: "width 0.4s ease" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+      <div style={{ borderTop: `1px solid ${AC.bd}`, paddingTop: 10, display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: "#6b7280" }}>{diff > 0 ? "Überschreitung:" : "Puffer bis Grün-Grenze:"}</span>
+        <span style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 14, color: diff > 0 ? AC.c : "#15803d" }}>
+          {diff > 0 ? "+" : "-"}{fmtE(Math.abs(diff))}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: AC.c, lineHeight: 1.5 }}>
+        {ampel === "gruen" && "✓ Im Rahmen. Kein besonderer Genehmigungsaufwand nötig."}
+        {ampel === "gelb" && "⚠ Über Grün-Grenze, unter +25%-Schwelle. Die FKS entscheidet — eine Begründung ist empfehlenswert."}
+        {ampel === "rot" && "🚫 Über die +25%-Schwelle. BA-Kostenzustimmung vor Zulassung erforderlich!"}
+      </div>
+    </div>
+  );
+}
+
+function AmpelBadge({ ampel, uepct }) {
+  const cfg = {
+    gruen: { bg: "#f0fdf4", bd: "#86efac", t: "#15803d", l: "Im Rahmen ✅" },
+    gelb:  { bg: "#fffbeb", bd: "#fcd34d", t: "#92400e", l: "FKS entscheidet ⚠️" },
+    rot:   { bg: "#fef2f2", bd: "#fca5a5", t: "#991b1b", l: "BA-Zustimmung nötig 🚫" },
+    grau:  { bg: "#f5f5f4", bd: "#d6d3d1", t: "#78716c", l: "Kein B-DKS" },
+  }[ampel];
+  return (
+    <div style={{ background: cfg.bg, border: `1px solid ${cfg.bd}`, borderRadius: 8, padding: "7px 13px", display: "inline-flex", alignItems: "center", gap: 9 }}>
+      <span style={{ color: cfg.t, fontWeight: 700, fontSize: 13 }}>{cfg.l}</span>
+      {ampel !== "grau" && <span style={{ color: cfg.t, fontSize: 12, fontFamily: "'DM Mono',monospace" }}>{uepct > 0 ? `+${fmt(uepct)}%` : `${fmt(uepct)}%`} ggü. Ziel</span>}
+    </div>
+  );
+}
+
+export default function App() {
+  const [view, setView] = useState("dashboard");
+  const [massnahmen, setMassnahmen] = useState([]);
+  const [activeMId, setActiveMId] = useState(null);
+  const [firma, setFirma] = useState({
+    name: "Businessplan Academy",
+    gdl: 20, // Gesamt-Durchläufe aller Maßnahmen/Jahr (für E3-Verteilung)
+    kosten: {
+      personal: [
+        { label: "Geschäftsführung (Gehalt/Entnahme)", betrag: 48000 },
+        { label: "Verwaltung / Office Management", betrag: 24000 },
+        { label: "Feste Lehrgangsleitung", betrag: 0 },
+      ],
+      raeume: [
+        { label: "Büromiete", betrag: 12000 },
+        { label: "Nebenkosten (Strom, Heizung, Internet)", betrag: 3600 },
+        { label: "IT-Ausstattung & Software (jährlich)", betrag: 4800 },
+        { label: "Büroausstattung & Verbrauchsmaterial", betrag: 1200 },
+      ],
+      marketing: [
+        { label: "Website & SEO", betrag: 3600 },
+        { label: "Online-Werbung (Google, Social)", betrag: 6000 },
+        { label: "Messen & Veranstaltungen", betrag: 2400 },
+        { label: "Printmaterialien & Werbemittel", betrag: 1200 },
+      ],
+      verwaltung: [
+        { label: "Buchhaltung & Steuerberatung", betrag: 4800 },
+        { label: "AZAV-Trägerzertifizierung (jährlich)", betrag: 1300 },
+        { label: "Versicherungen (Haftpflicht, BU etc.)", betrag: 2400 },
+        { label: "Rechts- & Beratungskosten", betrag: 1200 },
+        { label: "Bankgebühren & sonstige Verwaltung", betrag: 600 },
+      ],
+      steuern: [
+        { label: "Gewerbesteuer (Berlin ~14,35% auf Gewinn)", betrag: 0, auto: true, typ: "gewerbe" },
+        { label: "Körperschaftsteuer (15% + 5,5% Soli auf Gewinn)", betrag: 0, auto: true, typ: "koerper" },
+        { label: "IHK-Beitrag (Grundbeitrag + Umlage)", betrag: 600 },
+        { label: "Handelsregister / Notar (anteilig)", betrag: 300 },
+      ],
+    },
+    cashflow: {
+      startkapital: 20000,
+      zahlungsziel_tn_tage: 28, // AFA zahlt 4 Wochen nach Lehrgangsstart
+      fixkosten_monat: 0, // wird auto berechnet
+    },
+  });
+  const [chatMsgs, setChatMsgs] = useState([]);
+  const [chatIn, setChatIn] = useState("");
+  const [chatLoad, setChatLoad] = useState(false);
+  const chatEnd = useRef(null);
+  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMsgs, chatLoad]);
+
+  const activeM = massnahmen.find(m => m.id === activeMId);
+  const calc = activeM ? calcMassnahme(activeM) : null;
+
+  const addMassnahme = () => {
+    const id = Date.now().toString();
+    setMassnahmen(p => [...p, {
+      id, name: "Neue Maßnahme", unterrichtseinheiten: 164, teilnehmer: 12,
+      durchlaeufe_jahr: 4, laufzeit_jahre: 3, bdks_kategorie: "43103", bdks_zuschlag: 24,
+      gewinn_prozent: 10, e3_prozent: 22,
+      e1_items: [
+        { label: "Dozentenhonorare", betrag: 8000, kostentyp: "pauschale" },
+        { label: "Lernmaterialien", betrag: 100, kostentyp: "pro_ue" },
+        { label: "Raumkosten", betrag: 2480, kostentyp: "pauschale" },
+      ],
+      e2_items: [
+        { label: "Curriculum-Entwicklung", betrag: 15000, kostentyp: "laufzeit", laufzeit_modus: "einmalig" },
+        { label: "AZAV-Zertifizierung", betrag: 2500, kostentyp: "laufzeit", laufzeit_modus: "einmalig" },
+        { label: "Marketing", betrag: 6000, kostentyp: "laufzeit", laufzeit_modus: "jaehrlich" },
+        { label: "Curriculum-Update", betrag: 3750, kostentyp: "laufzeit", laufzeit_modus: "update", laufzeit_zyklus: 3 },
+      ],
+    }]);
+    setActiveMId(id);
+    setView("massnahme");
+  };
+
+  const upM = (f, v) => setMassnahmen(p => p.map(m => m.id === activeMId ? { ...m, [f]: v } : m));
+  const upI = (lk, idx, f, v) => setMassnahmen(p => p.map(m => {
+    if (m.id !== activeMId) return m;
+    const l = [...(m[lk] || [])]; l[idx] = { ...l[idx], [f]: v }; return { ...m, [lk]: l };
+  }));
+  const addI = (lk, d) => setMassnahmen(p => p.map(m => m.id !== activeMId ? m : { ...m, [lk]: [...(m[lk] || []), d] }));
+  const remI = (lk, idx) => setMassnahmen(p => p.map(m => m.id !== activeMId ? m : { ...m, [lk]: (m[lk] || []).filter((_, i) => i !== idx) }));
+  const delM = (id) => { setMassnahmen(p => p.filter(m => m.id !== id)); if (activeMId === id) { setActiveMId(null); setView("dashboard"); } };
+
+  const sendChat = async () => {
+    if (!chatIn.trim() || chatLoad) return;
+    const um = { role: "user", content: chatIn.trim() };
+    const upd = [...chatMsgs, um];
+    setChatMsgs(upd); setChatIn(""); setChatLoad(true);
+    const c = activeM ? calcMassnahme(activeM) : null;
+    const ctx = activeM && c ? `Maßnahme:"${activeM.name}" UE:${activeM.unterrichtseinheiten} E1:${fmtE(c.e1)} E2:${fmtE(c.e2)} E3:${fmtE(c.e3)} Endpreis:${fmtE(c.endpreis)} Preis/UE:${fmtE(c.pue)} Ziel-B-DKS:${fmtE(c.ziel)} MaxBudget:${fmtE(c.maxG)} Ampel:${c.ampel}` : "Keine Maßnahme.";
+    try {
+      const r = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, system: SYSTEM_PROMPT + "\nKONTEXT: " + ctx, messages: upd }),
+      });
+      const d = await r.json();
+      setChatMsgs([...upd, { role: "assistant", content: d.content?.[0]?.text || "Fehler." }]);
+    } catch { setChatMsgs([...upd, { role: "assistant", content: "Verbindungsfehler." }]); }
+    setChatLoad(false);
+  };
+
+  // ── Excel Export ──
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
+
+    // ── Sheet 1: Jahresrechnung ──
+    const firmaKostenFlat = Object.entries(firma.kosten)
+      .filter(([k]) => k !== "steuern")
+      .flatMap(([kat, items]) => items.map(i => ({ ...i, kategorie: kat })));
+    const firmaKostenGes = firmaKostenFlat.reduce((s, i) => s + (parseFloat(i.betrag)||0), 0);
+    const massnahmenUmsatz = alleC.reduce((s, {m, c}) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr)||1) : 0), 0);
+    const massnahmenKosten = alleC.reduce((s, {m, c}) => s + (c ? c.kosten * (parseFloat(m.durchlaeufe_jahr)||1) : 0), 0);
+    const ebt = massnahmenUmsatz - firmaKostenGes - massnahmenKosten;
+    const gst = ebt > 0 ? ebt * 0.1435 : 0;
+    const kst = ebt > 0 ? ebt * 0.15 * 1.055 : 0;
+    const fixSt = (firma.kosten.steuern||[]).filter(i=>!i.auto).reduce((s,i)=>s+(parseFloat(i.betrag)||0),0);
+    const stGes = gst + kst + fixSt;
+    const eat = ebt - stGes;
+
+    const jahrRows = [
+      ["BUSINESSPLAN — JAHRESRECHNUNG", firma.name],
+      ["Stand:", new Date().toLocaleDateString("de-DE")],
+      [],
+      ["GEWINN & VERLUST", "", "€/Jahr"],
+      ["Umsatz aus Maßnahmen", "", massnahmenUmsatz],
+      ["– Unternehmenskosten (E3)", "", firmaKostenGes],
+      ["– Maßnahmenkosten (E1+E2)", "", massnahmenKosten],
+      ["= Gewinn vor Steuern (EBT)", "", ebt],
+      [],
+      ["– Gewerbesteuer Berlin (14,35%)", "", gst],
+      ["– Körperschaftsteuer (15,825%)", "", kst],
+      ["– IHK & sonstige Gebühren", "", fixSt],
+      ["= Steuer- & Abgabenlast", "", stGes],
+      [],
+      ["= Jahresgewinn nach Steuern (EAT)", "", eat],
+      ["Netto-Gewinnmarge", "", massnahmenUmsatz > 0 ? eat/massnahmenUmsatz : 0],
+    ];
+    const wsJahr = XLSX.utils.aoa_to_sheet(jahrRows);
+    wsJahr["!cols"] = [{wch:40},{wch:20},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, wsJahr, "Jahresrechnung");
+
+    // ── Sheet 2: Unternehmenskosten ──
+    const ukRows = [
+      ["UNTERNEHMENSKOSTEN", "", "€/Jahr", "€/Monat"],
+    ];
+    const kategorieLabels = { personal:"Personal", raeume:"Räume & Infrastruktur", marketing:"Marketing & Vertrieb", verwaltung:"Verwaltung & Compliance", steuern:"Steuern & Gebühren" };
+    Object.entries(firma.kosten).forEach(([kat, items]) => {
+      const label = kategorieLabels[kat] || kat;
+      ukRows.push([]);
+      ukRows.push([label.toUpperCase()]);
+      items.forEach(item => {
+        const b = kat === "steuern" && item.typ === "gewerbe" ? gst
+                : kat === "steuern" && item.typ === "koerper" ? kst
+                : parseFloat(item.betrag)||0;
+        ukRows.push(["", item.label, b, b/12]);
+      });
+      const summe = items.reduce((s, i) => {
+        const b = kat === "steuern" && i.typ === "gewerbe" ? gst
+                : kat === "steuern" && i.typ === "koerper" ? kst
+                : parseFloat(i.betrag)||0;
+        return s + b;
+      }, 0);
+      ukRows.push(["", "Summe " + label, summe, summe/12]);
+    });
+    const wsUK = XLSX.utils.aoa_to_sheet(ukRows);
+    wsUK["!cols"] = [{wch:5},{wch:40},{wch:18},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, wsUK, "Unternehmenskosten");
+
+    // ── Sheet 3: Maßnahmen ──
+    const mRows = [
+      ["MASSNAHMEN-KALKULATION"],
+      [],
+      ["Maßnahme","UE","TN","Durchl./J","Laufzeit","B-DKS Kat.","Ziel-B-DKS €/UE","E1 €/DL","E2 €/DL","E3 €/DL","Kosten €/DL","Gewinn €/DL","Endpreis €/DL","Gebühr €/TN","Preis €/UE","Status"],
+    ];
+    alleC.forEach(({m, c}) => {
+      if (!c) return;
+      const kat = BDKS_KATEGORIEN.find(k=>k.code===m.bdks_kategorie);
+      mRows.push([
+        m.name, c.ue, c.tn, m.durchlaeufe_jahr, m.laufzeit_jahre,
+        kat?.label || "", c.ziel, c.e1, c.e2, c.e3,
+        c.kosten, c.gewinn, c.endpreis, c.gebuehr, c.pue,
+        {gruen:"✅ Im Rahmen", gelb:"⚠️ FKS entscheidet", rot:"🚫 BA-Zustimmung", grau:"–"}[c.ampel],
+      ]);
+    });
+    mRows.push([]);
+    mRows.push(["Jahresumsatz gesamt","","","","","","","","","","","","", massnahmenUmsatz]);
+    const wsM = XLSX.utils.aoa_to_sheet(mRows);
+    wsM["!cols"] = [{wch:25},{wch:6},{wch:5},{wch:9},{wch:9},{wch:35},{wch:14},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:14},{wch:12},{wch:12},{wch:18}];
+    XLSX.utils.book_append_sheet(wb, wsM, "Maßnahmen");
+
+    // ── Sheet 4: Cashflow ──
+    const fixKM = (firmaKostenGes + stGes) / 12;
+    const umsatzM = massnahmenUmsatz / 12;
+    const verz = Math.round((parseFloat(firma.cashflow?.zahlungsziel_tn_tage)||28)/30);
+    const start = parseFloat(firma.cashflow?.startkapital)||0;
+    const monatsnamen = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+    const cfRows = [
+      ["CASHFLOW-ANALYSE — 12 MONATE"],
+      ["Startkapital:", start],
+      ["AFA-Zahlungsverzögerung:", `${firma.cashflow?.zahlungsziel_tn_tage||28} Tage`],
+      [],
+      ["Monat","Einnahmen €","Fixkosten €","Netto €","Kumuliert €","Status"],
+    ];
+    let kum = start;
+    monatsnamen.forEach((mon, i) => {
+      const einnahmen = i >= verz ? umsatzM : 0;
+      const netto = einnahmen - fixKM;
+      kum += netto;
+      cfRows.push([mon, einnahmen, fixKM, netto, kum, kum >= 0 ? "✅" : "⚠️ Engpass"]);
+    });
+    const wsCF = XLSX.utils.aoa_to_sheet(cfRows);
+    wsCF["!cols"] = [{wch:8},{wch:14},{wch:14},{wch:14},{wch:14},{wch:12}];
+    XLSX.utils.book_append_sheet(wb, wsCF, "Cashflow");
+
+    // ── Exportieren ──
+    XLSX.writeFile(wb, `Businessplan_${firma.name.replace(/ /g,"_")}_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
+  const alleC = massnahmen.map(m => ({ m, c: calcMassnahme(m) }));
+  const totUmsatz = alleC.reduce((s, { m, c }) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+  const totKosten = alleC.reduce((s, { m, c }) => s + (c ? c.kosten * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+  const groups = [...new Set(BDKS_KATEGORIEN.map(k => k.group))];
+
+  return (
+    <div style={{ fontFamily: "'DM Sans',sans-serif", background: "#f5f3ef", minHeight: "100vh", color: "#1c1a17", display: "flex", flexDirection: "column" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Fraunces:wght@700;900&display=swap');
+        *{box-sizing:border-box;margin:0;padding:0}
+        ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:#ccc;border-radius:3px}
+        input,select,textarea{font-family:'DM Sans',sans-serif}
+        .nt{padding:7px 15px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:500;border:none;background:transparent;color:#7a756c;transition:all .15s}
+        .nt:hover{background:#e8e4de;color:#1c1a17}.nt.a{background:#1c1a17;color:#f5f3ef}
+        .card{background:#fff;border:1px solid #e5e0d9;border-radius:12px;padding:20px}
+        .mr{display:flex;align-items:center;gap:10px;padding:11px 13px;border:1px solid #e5e0d9;border-radius:9px;background:#fff;cursor:pointer;transition:all .15s}
+        .mr:hover{border-color:#c8c3bb}.mr.a{border-color:#1c1a17;background:#f0ede8}
+        .sl{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#a8a29a;margin-bottom:8px}
+        .sb{background:#f0ede8;border-radius:8px;padding:13px 16px}
+        @keyframes fu{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}.fu{animation:fu .2s ease forwards}
+        .cb{padding:11px 14px;border-radius:12px;font-size:13px;line-height:1.65;max-width:78%;white-space:pre-wrap}
+        .dot{width:5px;height:5px;background:#aaa;border-radius:50%;display:inline-block;margin:0 2px;animation:db 1s infinite}
+        .dot:nth-child(2){animation-delay:.15s}.dot:nth-child(3){animation-delay:.3s}
+        @keyframes db{0%,80%,100%{transform:translateY(0);opacity:.3}40%{transform:translateY(-4px);opacity:1}}
+        .sbtn{background:#1c1a17;color:#f5f3ef;border:none;border-radius:7px;padding:9px 18px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;cursor:pointer}
+        .sbtn:disabled{opacity:.3;cursor:not-allowed}
+        optgroup{font-weight:700;font-size:12px}
+      `}</style>
+
+      {/* TOP */}
+      <div style={{ background: "#fff", borderBottom: "1px solid #e5e0d9", padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontFamily: "'Fraunces',serif", fontSize: 18, fontWeight: 900 }}>Businessplan Academy</span>
+          <span style={{ width: 1, height: 16, background: "#d6d3d1" }} />
+          <span style={{ fontSize: 11, color: "#a8a29a", fontWeight: 500 }}>AZAV-Kalkulator</span>
+        </div>
+        <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+          {[["dashboard","Übersicht"],["massnahme","Maßnahme"],["chat","KI-Berater"]].map(([v,l]) => (
+            <button key={v} className={`nt${view===v?" a":""}`} onClick={() => setView(v)}>{l}</button>
+          ))}
+          <div style={{ width: 1, height: 20, background: "#e5e0d9", margin: "0 4px" }} />
+          <button onClick={exportExcel} style={{ padding: "6px 14px", background: "#15803d", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+            ⬇ Excel
+          </button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflow: "hidden", display: "flex" }}>
+        {/* SIDEBAR */}
+        <div style={{ width: 210, minWidth: 210, borderRight: "1px solid #e5e0d9", background: "#faf9f7", padding: "16px 10px", display: "flex", flexDirection: "column", gap: 6, overflowY: "auto" }}>
+          <div className="sl" style={{ paddingLeft: 3 }}>Maßnahmen</div>
+          {massnahmen.map(m => {
+            const c = calcMassnahme(m);
+            const dc = { gruen:"#16a34a", gelb:"#d97706", rot:"#dc2626", grau:"#a8a29a" }[c?.ampel||"grau"];
+            return (
+              <div key={m.id} className={`mr${activeMId===m.id?" a":""}`} onClick={() => { setActiveMId(m.id); setView("massnahme"); }}>
+                <div style={{ width: 7, height: 7, borderRadius: "50%", background: dc, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</div>
+                  {c && <div style={{ fontSize: 11, color: "#a8a29a", fontFamily: "'DM Mono',monospace" }}>{fmtE(c.pue)}/UE</div>}
+                </div>
+                <button onClick={e => { e.stopPropagation(); delM(m.id); }} style={iconBtn}>✕</button>
+              </div>
+            );
+          })}
+          <button onClick={addMassnahme} style={{ ...addBtn, marginTop: 3, width: "100%", textAlign: "center" }}>+ Neue Maßnahme</button>
+        </div>
+
+        {/* CONTENT */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "24px" }}>
+
+          {/* DASHBOARD */}
+          {view === "dashboard" && (
+            <div style={{ maxWidth: 900, margin: "0 auto" }}>
+              <h1 style={{ fontFamily: "'Fraunces',serif", fontSize: 24, fontWeight: 900, marginBottom: 4 }}>Gesamtübersicht</h1>
+              <p style={{ color: "#7a756c", fontSize: 13, marginBottom: 20 }}>Firmenprofil, Unternehmenskosten & konsolidierter Businessplan</p>
+
+              {/* KPI-Leiste */}
+              {(() => {
+                const firmaKosten = Object.values(firma.kosten).flat().reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const massnahmenUmsatz = alleC.reduce((s, { m, c }) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const massnahmenKosten = alleC.reduce((s, { m, c }) => s + (c ? c.kosten * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const gesamtKosten = firmaKosten + massnahmenKosten;
+                const gewinn = massnahmenUmsatz - gesamtKosten;
+                const gewinnMarge = massnahmenUmsatz > 0 ? (gewinn / massnahmenUmsatz * 100) : 0;
+                return (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 20 }}>
+                    {[
+                      ["Jahresumsatz (Maßnahmen)", massnahmenUmsatz, "#1d4ed8"],
+                      ["Unternehmenskosten/Jahr", firmaKosten, "#7c3aed"],
+                      ["Maßnahmenkosten/Jahr", massnahmenKosten, "#1c1a17"],
+                      ["Jahresgewinn/-verlust", gewinn, gewinn >= 0 ? "#15803d" : "#dc2626"],
+                    ].map(([l, v, c]) => (
+                      <div key={l} className="sb">
+                        <div style={{ fontSize: 10, color: "#7a756c", marginBottom: 5, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>{l}</div>
+                        <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 700, color: c }}>{fmtE(v)}</div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
+
+                {/* Stammdaten */}
+                <div className="card">
+                  <div className="sl">Stammdaten</div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>Unternehmensname</div>
+                      <input style={iS} value={firma.name} onChange={e => setFirma(f => ({ ...f, name: e.target.value }))} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>Gesamt-Durchläufe/Jahr (alle Maßnahmen, für E3-Verteilung)</div>
+                      <input style={iS} type="number" value={firma.gdl} onChange={e => setFirma(f => ({ ...f, gdl: e.target.value }))} />
+                    </div>
+                    <div style={{ background: "#f0ede8", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#7a756c", lineHeight: 1.6 }}>
+                      <strong style={{ color: "#1c1a17" }}>Firmen-Gemeinkosten (E3)</strong><br/>
+                      Die Summe der Unternehmenskosten unten wird als E3-Basis auf alle Maßnahmen verteilt.<br/>
+                      Gesamt/Jahr: <strong style={{ color: "#7c3aed", fontFamily: "'DM Mono',monospace" }}>
+                        {fmtE(Object.values(firma.kosten).flat().reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0))}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Maßnahmen-Portfolio kompakt */}
+                <div className="card">
+                  <div className="sl">Maßnahmen-Portfolio</div>
+                  {massnahmen.length === 0 ? (
+                    <div style={{ textAlign: "center", padding: "20px", color: "#a8a29a", fontSize: 13 }}>
+                      Noch keine Maßnahmen angelegt
+                      <br/><button onClick={addMassnahme} style={{ marginTop: 10, background: "#1c1a17", color: "#f5f3ef", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Erste Maßnahme</button>
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {alleC.map(({ m, c }) => {
+                        const ac = { gruen:"#16a34a", gelb:"#d97706", rot:"#dc2626", grau:"#aaa" }[c?.ampel||"grau"];
+                        const ab = { gruen:"#f0fdf4", gelb:"#fffbeb", rot:"#fef2f2", grau:"#f5f5f4" }[c?.ampel||"grau"];
+                        return (
+                          <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 10px", background: "#faf9f7", borderRadius: 7, border: "1px solid #e5e0d9", cursor: "pointer" }}
+                            onClick={() => { setActiveMId(m.id); setView("massnahme"); }}>
+                            <div>
+                              <div style={{ fontSize: 13, fontWeight: 500 }}>{m.name}</div>
+                              <div style={{ fontSize: 11, color: "#7a756c", fontFamily: "'DM Mono',monospace" }}>
+                                {m.durchlaeufe_jahr}×/Jahr · {fmtE(c?.gebuehr || 0)}/TN · {m.unterrichtseinheiten} UE
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                              <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, fontWeight: 700 }}>
+                                {fmtE(c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr)||1) : 0)}/J
+                              </div>
+                              <span style={{ background: ab, color: ac, borderRadius: 5, padding: "2px 7px", fontSize: 10, fontWeight: 700 }}>
+                                {{gruen:"✅",gelb:"⚠️",rot:"🚫",grau:"–"}[c?.ampel||"grau"]}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      <button onClick={addMassnahme} style={{ ...addBtn, marginTop: 2 }}>+ Neue Maßnahme</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Unternehmenskosten */}
+              {[
+                { key: "personal",   label: "Personal",                     icon: "👥", desc: "Gehälter, Honorare, Sozialabgaben" },
+                { key: "raeume",     label: "Räume & Infrastruktur",        icon: "🏢", desc: "Miete, IT, Ausstattung" },
+                { key: "marketing",  label: "Marketing & Vertrieb",         icon: "📣", desc: "Werbung, Online, Messen" },
+                { key: "verwaltung", label: "Verwaltung & Compliance",      icon: "📋", desc: "Buchhaltung, AZAV, Versicherungen" },
+              ].map(({ key, label, icon, desc }) => {
+                const items = firma.kosten[key] || [];
+                const summe = items.reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const updateItem = (idx, field, val) => setFirma(f => {
+                  const list = [...f.kosten[key]];
+                  list[idx] = { ...list[idx], [field]: val };
+                  return { ...f, kosten: { ...f.kosten, [key]: list } };
+                });
+                const addItem = () => setFirma(f => ({ ...f, kosten: { ...f.kosten, [key]: [...f.kosten[key], { label: "", betrag: 0 }] } }));
+                const removeItem = (idx) => setFirma(f => ({ ...f, kosten: { ...f.kosten, [key]: f.kosten[key].filter((_, i) => i !== idx) } }));
+                return (
+                  <div key={key} className="card" style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 16 }}>{icon}</span>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>{label}</span>
+                          <span style={{ fontSize: 11, color: "#a8a29a" }}>{desc}</span>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 15, color: "#7c3aed" }}>{fmtE(summe)}/Jahr</div>
+                        <div style={{ fontSize: 11, color: "#a8a29a" }}>{fmtE(summe/12)}/Monat</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {items.map((item, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input style={{ ...iS, flex: 1 }} placeholder="Bezeichnung" value={item.label || ""} onChange={e => updateItem(i, "label", e.target.value)} />
+                          <input style={{ ...iS, width: 140 }} type="number" placeholder="Jahresbetrag (€)" value={item.betrag || ""} onChange={e => updateItem(i, "betrag", e.target.value)} />
+                          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 11, color: "#a8a29a", width: 80, textAlign: "right", whiteSpace: "nowrap" }}>
+                            {fmtE((parseFloat(item.betrag)||0)/12)}/Mo
+                          </div>
+                          <button onClick={() => removeItem(i)} style={iconBtn}>✕</button>
+                        </div>
+                      ))}
+                      <button onClick={addItem} style={addBtn}>+ Hinzufügen</button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* ── STEUERN & GEBÜHREN ── */}
+              {(() => {
+                const firmaKosten = Object.values(firma.kosten).flat().reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const massnahmenUmsatz = alleC.reduce((s, { m, c }) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const massnahmenKosten = alleC.reduce((s, { m, c }) => s + (c ? c.kosten * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const gewinnVorSteuer = massnahmenUmsatz - firmaKosten - massnahmenKosten;
+                const gewerbesteuer = gewinnVorSteuer > 0 ? gewinnVorSteuer * 0.1435 : 0;
+                const koerpersteuer = gewinnVorSteuer > 0 ? gewinnVorSteuer * 0.15 * 1.055 : 0;
+                const steuernItems = (firma.kosten.steuern || []).map(item => {
+                  if (item.typ === "gewerbe") return { ...item, betrag: Math.round(gewerbesteuer) };
+                  if (item.typ === "koerper") return { ...item, betrag: Math.round(koerpersteuer) };
+                  return item;
+                });
+                const steuernSumme = steuernItems.reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const updateSteuer = (idx, field, val) => setFirma(f => {
+                  const list = [...(f.kosten.steuern || [])];
+                  list[idx] = { ...list[idx], [field]: val };
+                  return { ...f, kosten: { ...f.kosten, steuern: list } };
+                });
+                const addSteuer = () => setFirma(f => ({ ...f, kosten: { ...f.kosten, steuern: [...(f.kosten.steuern||[]), { label: "", betrag: 0 }] } }));
+                const removeSteuer = (idx) => setFirma(f => ({ ...f, kosten: { ...f.kosten, steuern: f.kosten.steuern.filter((_, i) => i !== idx) } }));
+                return (
+                  <div className="card" style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 16 }}>🏛️</span>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>Steuern & Gebühren (GmbH Berlin)</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#a8a29a" }}>Gewerbe- und Körperschaftsteuer werden automatisch auf Basis des Vorsteuer-Gewinns berechnet</div>
+                      </div>
+                      <div style={{ textAlign: "right" }}>
+                        <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, fontSize: 15, color: "#dc2626" }}>{fmtE(steuernSumme)}/Jahr</div>
+                        <div style={{ fontSize: 11, color: "#a8a29a" }}>{fmtE(steuernSumme/12)}/Monat</div>
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {steuernItems.map((item, i) => (
+                        <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input style={{ ...iS, flex: 1 }} placeholder="Bezeichnung" value={item.label || ""} onChange={e => updateSteuer(i, "label", e.target.value)} />
+                          <input style={{ ...iS, width: 140, background: item.auto ? "#f0fdf4" : "#faf9f7", color: item.auto ? "#15803d" : "#1c1a17" }}
+                            type="number" placeholder="Betrag (€/Jahr)"
+                            value={Math.round(parseFloat(item.betrag)||0)}
+                            readOnly={!!item.auto}
+                            onChange={e => !item.auto && updateSteuer(i, "betrag", e.target.value)} />
+                          <div style={{ fontSize: 10, color: item.auto ? "#15803d" : "#a8a29a", width: 60, textAlign: "right", fontWeight: item.auto ? 600 : 400 }}>
+                            {item.auto ? "auto" : fmtE((parseFloat(item.betrag)||0)/12)+"/Mo"}
+                          </div>
+                          <button onClick={() => removeSteuer(i)} style={iconBtn}>✕</button>
+                        </div>
+                      ))}
+                      <button onClick={addSteuer} style={addBtn}>+ Hinzufügen</button>
+                    </div>
+                    {gewinnVorSteuer <= 0 && (
+                      <div style={{ marginTop: 10, background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 7, padding: "8px 12px", fontSize: 12, color: "#c2410c" }}>
+                        ⚠ Kein positiver Vorsteuer-Gewinn — Steuern werden mit 0 € angesetzt.
+                      </div>
+                    )}
+                    <div style={{ marginTop: 10, background: "#f0ede8", borderRadius: 7, padding: "8px 12px", fontSize: 11, color: "#7a756c", lineHeight: 1.6 }}>
+                      <strong>Hinweis:</strong> AZAV-geförderte Bildungsleistungen sind nach § 4 Nr. 21 UStG i.d.R. <strong>umsatzsteuerfrei</strong> — keine USt-Pflicht auf Lehrgangsgebühren.
+                      Gewerbesteuer Berlin: Hebesatz 410% × Messzahl 3,5% = <strong>14,35%</strong>. Körperschaftsteuer: 15% + 5,5% Soli = <strong>15,825%</strong>.
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── CASHFLOW ── */}
+              {(() => {
+                const fixKosten = Object.values(firma.kosten).flat().reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const fixKonatlich = fixKosten / 12;
+                const massnahmenUmsatz = alleC.reduce((s, { m, c }) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const zahlungstage = parseFloat(firma.cashflow?.zahlungsziel_tn_tage) || 28;
+                const startkapital = parseFloat(firma.cashflow?.startkapital) || 0;
+
+                // Monatliche Einnahmen simulieren (gleichmäßig verteilt, aber mit Verzögerung)
+                const umsatzMonatlich = massnahmenUmsatz / 12;
+                // AFA zahlt ~4 Wochen nach Start → Einnahmen kommen ~1 Monat verzögert
+                const verzoegerungsMonate = Math.round(zahlungstage / 30);
+
+                // Einfache 12-Monats-Simulation
+                const monate = Array.from({ length: 12 }, (_, i) => {
+                  const monat = i + 1;
+                  // Einnahmen kommen verzögert
+                  const einnahmen = monat > verzoegerungsMonate ? umsatzMonatlich : 0;
+                  // Fixkosten laufen sofort
+                  const ausgaben = fixKonatlich;
+                  const netto = einnahmen - ausgaben;
+                  return { monat, einnahmen, ausgaben, netto };
+                });
+
+                // Kumulierter Cashflow
+                let kumuliert = startkapital;
+                const mitKumuliert = monate.map(m => {
+                  kumuliert += m.netto;
+                  return { ...m, kumuliert };
+                });
+
+                const breakEvenMonat = mitKumuliert.findIndex(m => m.kumuliert >= 0 && m.monat > verzoegerungsMonate);
+                const minKumuliert = Math.min(...mitKumuliert.map(m => m.kumuliert));
+                const maxKumuliert = Math.max(...mitKumuliert.map(m => m.kumuliert));
+                const liquiditaetspuffer = Math.abs(Math.min(0, minKumuliert)) + fixKonatlich * 2;
+
+                const monatsnamen = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+                const barHeight = 120;
+                const maxVal = Math.max(Math.abs(minKumuliert), maxKumuliert, 1);
+
+                return (
+                  <div className="card" style={{ marginBottom: 12 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 }}>
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 16 }}>💧</span>
+                          <span style={{ fontWeight: 700, fontSize: 14 }}>Cashflow-Analyse</span>
+                        </div>
+                        <div style={{ fontSize: 11, color: "#a8a29a" }}>Liquidität über 12 Monate · AFA-Zahlungsverzögerung berücksichtigt</div>
+                      </div>
+                    </div>
+
+                    {/* Einstellungen */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                      <div>
+                        <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>Startkapital / Anfangsliquidität (€)</div>
+                        <input style={iS} type="number" value={firma.cashflow?.startkapital || 0}
+                          onChange={e => setFirma(f => ({ ...f, cashflow: { ...f.cashflow, startkapital: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>AFA-Zahlungsverzögerung (Tage nach Lehrgangsstart)</div>
+                        <input style={iS} type="number" value={firma.cashflow?.zahlungsziel_tn_tage || 28}
+                          onChange={e => setFirma(f => ({ ...f, cashflow: { ...f.cashflow, zahlungsziel_tn_tage: e.target.value } }))} />
+                        <div style={{ fontSize: 11, color: "#a8a29a", marginTop: 3 }}>Standard: 28 Tage (4 Wochen) — AFA zahlt 1 Tranche pro TN</div>
+                      </div>
+                    </div>
+
+                    {/* KPIs */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginBottom: 16 }}>
+                      {[
+                        ["Monatl. Fixkosten", fmtE(fixKonatlich), "#7c3aed"],
+                        ["Monatl. Umsatz (Ø)", fmtE(umsatzMonatlich), "#1d4ed8"],
+                        ["Empf. Liquiditätspuffer", fmtE(liquiditaetspuffer), "#c2410c"],
+                      ].map(([l,v,c]) => (
+                        <div key={l} className="sb">
+                          <div style={{ fontSize: 10, color: "#7a756c", marginBottom: 4, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>{l}</div>
+                          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 15, fontWeight: 700, color: c }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Balkendiagramm kumulierter Cashflow */}
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, color: "#7a756c", marginBottom: 8, fontWeight: 600 }}>Kumulierter Cashflow (12 Monate ab Gründung)</div>
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: barHeight + 40, position: "relative" }}>
+                        {/* Nulllinie */}
+                        <div style={{ position: "absolute", left: 0, right: 0, top: barHeight * (maxVal / (maxVal - minKumuliert < 0 ? 1 : 1)), borderTop: "1px dashed #c8c3bb", zIndex: 1 }} />
+                        {mitKumuliert.map((m, i) => {
+                          const isPos = m.kumuliert >= 0;
+                          const barPct = Math.abs(m.kumuliert) / maxVal;
+                          const barPx = Math.max(barPct * barHeight, 2);
+                          return (
+                            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+                              {isPos && <div style={{ fontSize: 9, color: "#15803d", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap", transform: "rotate(-45deg)", marginBottom: 2 }}>{fmt(m.kumuliert/1000)}k</div>}
+                              <div style={{ width: "100%", background: isPos ? "#22c55e" : "#ef4444", borderRadius: isPos ? "3px 3px 0 0" : "0 0 3px 3px", height: barPx, minHeight: 2, alignSelf: isPos ? "flex-end" : "flex-start", marginTop: isPos ? "auto" : 0 }} />
+                              {!isPos && <div style={{ fontSize: 9, color: "#dc2626", fontFamily: "'DM Mono',monospace", whiteSpace: "nowrap", transform: "rotate(-45deg)" }}>{fmt(m.kumuliert/1000)}k</div>}
+                              <div style={{ fontSize: 10, color: "#7a756c", marginTop: 2 }}>{monatsnamen[i]}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Monatstabelle */}
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                        <thead><tr style={{ borderBottom: "2px solid #e5e0d9" }}>
+                          {["Monat","Einnahmen","Fixkosten","Netto","Kumuliert"].map(h => (
+                            <th key={h} style={{ textAlign: "right", padding: "5px 8px", fontSize: 10, color: "#7a756c", fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</th>
+                          ))}
+                        </tr></thead>
+                        <tbody>
+                          {mitKumuliert.map((m, i) => (
+                            <tr key={i} style={{ borderBottom: "1px solid #f0ede8", background: m.kumuliert < 0 ? "#fff5f5" : "transparent" }}>
+                              <td style={{ padding: "5px 8px", color: "#7a756c" }}>{monatsnamen[i]}</td>
+                              {[
+                                [m.einnahmen, "#1d4ed8"],
+                                [m.ausgaben, "#dc2626"],
+                                [m.netto, m.netto >= 0 ? "#15803d" : "#dc2626"],
+                                [m.kumuliert, m.kumuliert >= 0 ? "#15803d" : "#dc2626"],
+                              ].map(([v, c], j) => (
+                                <td key={j} style={{ padding: "5px 8px", textAlign: "right", fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: j >= 2 ? 600 : 400, color: c }}>
+                                  {v < 0 ? "-" : ""}{fmtE(Math.abs(v))}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Hinweise */}
+                    <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+                      {minKumuliert < 0 && (
+                        <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 7, padding: "8px 12px", fontSize: 12, color: "#991b1b" }}>
+                          ⚠ <strong>Liquiditätsengpass:</strong> In den ersten Monaten entsteht ein Defizit von bis zu {fmtE(Math.abs(minKumuliert))}. Startkapital oder Kontokorrentlinie empfohlen: mind. <strong>{fmtE(liquiditaetspuffer)}</strong>.
+                        </div>
+                      )}
+                      <div style={{ background: "#f0ede8", borderRadius: 7, padding: "8px 12px", fontSize: 11, color: "#7a756c", lineHeight: 1.6 }}>
+                        <strong>AFA-Zahlungslogik:</strong> Die Bundesagentur für Arbeit zahlt die Lehrgangsgebühr in einer Tranche je Teilnehmer — frühestens 4 Wochen nach Maßnahmenbeginn.
+                        Bei {verzoegerungsMonate} Monat(en) Verzögerung fließen die ersten Einnahmen erst ab <strong>{monatsnamen[verzoegerungsMonate] || "Monat " + (verzoegerungsMonate+1)}</strong>.
+                        Die Fixkosten laufen aber ab Tag 1. → Empfohlener Liquiditätspuffer: <strong>{fmtE(liquiditaetspuffer)}</strong>.
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── JAHRESRECHNUNG ── */}
+                            {/* Gesamtkosten-Zusammenfassung */}
+              {(() => {
+                const firmaKosten = Object.entries(firma.kosten)
+                  .filter(([k]) => k !== "steuern")
+                  .flatMap(([, v]) => v)
+                  .reduce((s, i) => s + (parseFloat(i.betrag) || 0), 0);
+                const massnahmenUmsatz = alleC.reduce((s, { m, c }) => s + (c ? c.endpreis * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const massnahmenKosten = alleC.reduce((s, { m, c }) => s + (c ? c.kosten * (parseFloat(m.durchlaeufe_jahr) || 1) : 0), 0);
+                const gewinnVorSteuer = massnahmenUmsatz - firmaKosten - massnahmenKosten;
+                const gewerbesteuer = gewinnVorSteuer > 0 ? gewinnVorSteuer * 0.1435 : 0;
+                const koerpersteuer = gewinnVorSteuer > 0 ? gewinnVorSteuer * 0.15 * 1.055 : 0;
+                const fixSteuern = (firma.kosten.steuern||[]).filter(i => !i.auto).reduce((s,i) => s + (parseFloat(i.betrag)||0), 0);
+                const gesamtSteuern = gewerbesteuer + koerpersteuer + fixSteuern;
+                const gewinnNachSteuer = gewinnVorSteuer - gesamtSteuern;
+                return (
+                  <div className="card" style={{ background: "#1c1a17", color: "#f5f3ef" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b7280", marginBottom: 14 }}>Businessplan — Jahresrechnung (GmbH Berlin)</div>
+                    <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, lineHeight: 2.1 }}>
+                      {[
+                        ["Umsatz aus Maßnahmen", fmtE(massnahmenUmsatz), false, "#9ca3af"],
+                        null,
+                        ["– Unternehmenskosten (Personal, Räume etc.)", fmtE(firmaKosten), false, "#6b7280"],
+                        ["– Maßnahmenkosten E1+E2 (alle Maßnahmen)", fmtE(massnahmenKosten), false, "#6b7280"],
+                        ["= Gewinn vor Steuern (EBT)", fmtE(gewinnVorSteuer), true, gewinnVorSteuer >= 0 ? "#e5e0d9" : "#f87171"],
+                        null,
+                        ["– Gewerbesteuer Berlin (14,35%)", fmtE(gewerbesteuer), false, "#6b7280"],
+                        ["– Körperschaftsteuer (15% + Soli 5,5%)", fmtE(koerpersteuer), false, "#6b7280"],
+                        ["– IHK, HR & sonstige Gebühren", fmtE(fixSteuern), false, "#6b7280"],
+                        ["= Steuer- & Abgabenlast gesamt", fmtE(gesamtSteuern), true, "#fca5a5"],
+                        null,
+                        ["= Jahresgewinn nach Steuern (EAT)", fmtE(gewinnNachSteuer), true, gewinnNachSteuer >= 0 ? "#4ade80" : "#f87171"],
+                        ["Effektive Steuerquote", massnahmenUmsatz > 0 ? `${fmt(gesamtSteuern / massnahmenUmsatz * 100)} %` : "–", false, "#6b7280"],
+                        ["Netto-Gewinnmarge", massnahmenUmsatz > 0 ? `${fmt(gewinnNachSteuer / massnahmenUmsatz * 100)} %` : "–", false, gewinnNachSteuer >= 0 ? "#4ade80" : "#f87171"],
+                      ].map((row, i) => {
+                        if (!row) return <div key={i} style={{ borderTop: "1px solid #2d2b28", margin: "2px 0" }} />;
+                        const [l, v, b, c] = row;
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontWeight: b ? 700 : 400 }}>
+                            <span style={{ color: b ? "#e5e0d9" : "#6b7280" }}>{l}</span>
+                            <span style={{ color: c }}>{v}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+        {/* MASSNAHME */}
+          {view === "massnahme" && (
+            activeM ? (
+              <div style={{ maxWidth: 840, margin: "0 auto" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 18 }}>
+                  <input style={{ fontFamily: "'Fraunces',serif", fontSize: 20, fontWeight: 900, border: "none", background: "transparent", color: "#1c1a17", flex: 1, outline: "none" }} value={activeM.name} onChange={e => upM("name", e.target.value)} />
+                  {calc && <AmpelBadge ampel={calc.ampel} uepct={calc.uepct} />}
+                </div>
+
+                <BudgetBox calc={calc} />
+
+                {/* Grundparameter */}
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div className="sl">Grundparameter</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
+                    {[["Unterrichtseinheiten (UE)","unterrichtseinheiten"],["Teilnehmer / Durchlauf","teilnehmer"],["Durchläufe / Jahr","durchlaeufe_jahr"],["Laufzeit (Jahre)","laufzeit_jahre"],["Gewinn % (max. 10)","gewinn_prozent"],["Overhead E3 (%)","e3_prozent"]].map(([l,k]) => (
+                      <div key={k}><div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>{l}</div>
+                      <input style={iS} type="number" value={activeM[k]||""} onChange={e => upM(k, e.target.value)} /></div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* B-DKS */}
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div className="sl">B-DKS Einordnung</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>Kategorie (KldB 2010)</div>
+                      <select style={iS} value={activeM.bdks_kategorie} onChange={e => upM("bdks_kategorie", e.target.value)}>
+                        {groups.map(g => (
+                          <optgroup key={g} label={g}>
+                            {BDKS_KATEGORIEN.filter(k=>k.group===g).map(k => (
+                              <option key={k.code} value={k.code}>{k.label} — {fmt(k.satz)} €/UE</option>
+                            ))}
+                          </optgroup>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>BA-Zuschlag (%)</div>
+                      <select style={iS} value={activeM.bdks_zuschlag} onChange={e => upM("bdks_zuschlag", e.target.value)}>
+                        {ZUSCHLAEGE.map(z => <option key={z} value={z}>{z}%</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {calc && (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 10 }}>
+                      {[
+                        ["B-DKS-Satz", fmtE(calc.bdks)+"/UE", "#6b7280"],
+                        ["Ziel-B-DKS (m. Zuschlag)", fmtE(calc.ziel)+"/UE", "#15803d"],
+                        ["Grün-Grenze gesamt", fmtE(calc.maxG), "#15803d"],
+                        ["BA-Schwelle +25%", fmtE(calc.s25)+"/UE", "#d97706"],
+                      ].map(([l,v,c]) => (
+                        <div key={l} className="sb">
+                          <div style={{ fontSize: 10, color: "#6b7280", marginBottom: 3 }}>{l}</div>
+                          <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 12, fontWeight: 700, color: c }}>{v}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ fontSize: 11, color: "#7a756c", background: "#faf9f7", borderRadius: 7, padding: "8px 11px", lineHeight: 1.6 }}>
+                    <strong>Grün-Grenze</strong> = Ziel-B-DKS × UE — Endpreis darunter: kein BA-Aufwand.&ensp;
+                    <strong>BA-Schwelle</strong> = Ziel-B-DKS × 1,25 — darüber: BA-Kostenzustimmung vor Zulassung.
+                  </div>
+                </div>
+
+                {/* E1 */}
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div>
+                      <div className="sl" style={{ marginBottom: 2 }}>Ebene 1 – Direkte Durchlaufkosten</div>
+                      <div style={{ fontSize: 12, color: "#7a756c" }}>Kosten die bei <strong>einem Durchlauf</strong> direkt anfallen — Eingabe als Pauschale, pro UE oder pro TN</div>
+                    </div>
+                    {calc && <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, color: "#1d4ed8" }}>∑ {fmtE(calc.e1)} / Durchlauf &nbsp;→&nbsp; <span style={{color:'#15803d'}}>{fmtE(calc.e1/calc.tn)} / TN</span></div>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {(activeM.e1_items||[]).map((item,i) => (
+                      <E1ItemRow key={i} item={item} idx={i} onChange={(ix,f,v)=>upI("e1_items",ix,f,v)} onRemove={ix=>remI("e1_items",ix)}
+                        ue={parseFloat(activeM.unterrichtseinheiten)||1} dpj={parseFloat(activeM.durchlaeufe_jahr)||1} lj={parseFloat(activeM.laufzeit_jahre)||3} tn={parseFloat(activeM.teilnehmer)||1} />
+                    ))}
+                    <button style={addBtn} onClick={() => addI("e1_items", { label:"", betrag:0, kostentyp:"pauschale" })}>+ Hinzufügen</button>
+                  </div>
+                </div>
+
+                {/* E2 */}
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <div>
+                      <div className="sl" style={{ marginBottom: 2 }}>Ebene 2 – Maßnahmen-Overhead</div>
+                      <div style={{ fontSize: 12, color: "#7a756c" }}>Kosten die <strong>über alle Lehrgänge</strong> amortisiert werden — Eingabe immer als Gesamtbetrag</div>
+                    </div>
+                    {calc && <div style={{ fontFamily: "'DM Mono',monospace", fontWeight: 700, color: "#1d4ed8" }}>∑ {fmtE(calc.e2)} / Durchlauf &nbsp;→&nbsp; <span style={{color:'#15803d'}}>{fmtE(calc.e2/calc.tn)} / TN</span></div>}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {(activeM.e2_items||[]).map((item,i) => (
+                      <E2ItemRow key={i} item={item} idx={i} onChange={(ix,f,v)=>upI("e2_items",ix,f,v)} onRemove={ix=>remI("e2_items",ix)}
+                        dpj={parseFloat(activeM.durchlaeufe_jahr)||1} lj={parseFloat(activeM.laufzeit_jahre)||3} tn={parseFloat(activeM.teilnehmer)||1} />
+                    ))}
+                    <button style={addBtn} onClick={() => addI("e2_items", { label:"", betrag:0, kostentyp:"laufzeit", laufzeit_modus:"einmalig" })}>+ Hinzufügen</button>
+                  </div>
+                </div>
+
+                {/* E3 */}
+                <div className="card" style={{ marginBottom: 14 }}>
+                  <div className="sl">Ebene 3 – Firmen-Gemeinkosten</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                    <div>
+                      <div style={{ fontSize: 12, color: "#7a756c", marginBottom: 4 }}>Overhead-Anteil auf (E1 + E2)</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <input style={{ ...iS, width: 80 }} type="number" value={activeM.e3_prozent||""} onChange={e => upM("e3_prozent", e.target.value)} />
+                        <span style={{ fontSize: 13, color: "#7a756c" }}>% → {calc ? fmtE(calc.e3) : "–"} / Durchlauf</span>
+                      </div>
+                      <div style={{ fontSize: 11, color: "#a8a29a", marginTop: 4 }}>~20–25% Orientierung (kein festes Limit)</div>
+                    </div>
+                    {calc && (
+                      <div className="sb">
+                        <div style={{ fontSize: 11, color: "#6b7280", marginBottom: 3 }}>E3 pro Durchlauf</div>
+                        <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 16, fontWeight: 600 }}>{fmtE(calc.e3)}</div>
+                        <div style={{ fontSize: 11, color: "#a8a29a", marginTop: 2 }}>{fmt(activeM.e3_prozent||0)}% von {fmtE(calc.e1+calc.e2)}</div>
+                        <div style={{ fontSize: 11, color: "#15803d", marginTop: 2, fontWeight: 600 }}>= {fmtE(calc.e3/calc.tn)} / TN</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ergebnis */}
+                {calc && (
+                  <div className="card" style={{ background: "#1c1a17", color: "#f5f3ef" }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "#6b7280", marginBottom: 14 }}>Kalkulationsergebnis</div>
+                    <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 13, lineHeight: 2.1 }}>
+                      {[
+                        ["Ebene 1 – Direkte Kosten", fmtE(calc.e1), false, "#6b7280"],
+                        ["Ebene 2 – Maßnahmen-Overhead", fmtE(calc.e2), false, "#6b7280"],
+                        [`Ebene 3 – Firmen-Gemeinkosten (${activeM.e3_prozent||0}%)`, fmtE(calc.e3), false, "#6b7280"],
+                        null,
+                        ["∑ Kosten gesamt", fmtE(calc.kosten), true, "#e5e0d9"],
+                        [`  davon pro TN (${calc.tn} TN)`, fmtE(calc.kosten/calc.tn), false, "#6b7280"],
+                        [`+ Gewinn (${calc.gp}% auf ${calc.gewinn_gedeckelt ? "Normalpreis — gedeckelt ⚠" : "Kosten"})`, fmtE(calc.gewinn), false, calc.gewinn_gedeckelt ? "#d97706" : "#6b7280"],
+                        null,
+                        ["= Endpreis pro Durchlauf", fmtE(calc.endpreis), true, "#ffffff"],
+                        ["= Lehrgangsgebühr pro TN", fmtE(calc.gebuehr), true, "#fbbf24"],
+                        [`÷ ${calc.ue} UE → Preis pro UE (Gebühr/TN ÷ UE)`, fmtE(calc.pue), false, "#9ca3af"],
+
+                      ].map((row,i) => {
+                        if (!row) return <div key={i} style={{ borderTop: "1px solid #2d2b28", margin: "2px 0" }} />;
+                        const [l,v,b,c] = row;
+                        return (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", fontWeight: b ? 700 : 400 }}>
+                            <span style={{ color: b?"#e5e0d9":"#6b7280" }}>{l}</span>
+                            <span style={{ color: c }}>{v}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: "80px 20px", color: "#7a756c", fontSize: 14 }}>Wähle links eine Maßnahme oder lege eine neue an.</div>
+            )
+          )}
+
+          {/* CHAT */}
+          {view === "chat" && (
+            <div style={{ maxWidth: 700, margin: "0 auto", display: "flex", flexDirection: "column", height: "calc(100vh - 108px)" }}>
+              <div style={{ marginBottom: 12 }}>
+                <h2 style={{ fontFamily: "'Fraunces',serif", fontSize: 19, fontWeight: 900 }}>KI-Kalkulationsberater</h2>
+                <p style={{ fontSize: 12, color: "#7a756c", marginTop: 2 }}>{activeM?`Kontext: „${activeM.name}"`:"Kein Kontext — wähle links eine Maßnahme"}</p>
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingBottom: 8 }}>
+                {chatMsgs.length === 0 && (
+                  <div style={{ background: "#fff", border: "1px solid #e5e0d9", borderRadius: 11, padding: "14px 17px" }}>
+                    <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 14 }}>Womit kann ich helfen?</div>
+                    <div style={{ fontSize: 13, color: "#7a756c", lineHeight: 1.6, marginBottom: 10 }}>Ich kenne das 3-Ebenen-Modell und die AZAV-Regularien vollständig.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {["Wie reduziere ich den Endpreis?","Was bedeutet Grün-Grenze genau?","Ist 22% Overhead angemessen?","Software-Lizenz als Laufzeit-Kosten?"].map(q => (
+                        <button key={q} onClick={() => setChatIn(q)} style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #d6d3d1", borderRadius: 6, background: "#f0ede8", cursor: "pointer", color: "#1c1a17" }}>{q}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {chatMsgs.map((msg,i) => (
+                  <div key={i} className="fu" style={{ display: "flex", justifyContent: msg.role==="user"?"flex-end":"flex-start" }}>
+                    <div className="cb" style={{ background: msg.role==="user"?"#1c1a17":"#fff", color: msg.role==="user"?"#f5f3ef":"#1c1a17", border: msg.role==="assistant"?"1px solid #e5e0d9":"none", borderRadius: msg.role==="user"?"13px 13px 3px 13px":"13px 13px 13px 3px" }}>{msg.content}</div>
+                  </div>
+                ))}
+                {chatLoad && <div style={{ display: "flex" }}><div className="cb" style={{ background: "#fff", border: "1px solid #e5e0d9", borderRadius: "13px 13px 13px 3px" }}><span className="dot"/><span className="dot"/><span className="dot"/></div></div>}
+                <div ref={chatEnd} />
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", paddingTop: 10, borderTop: "1px solid #e5e0d9" }}>
+                <textarea style={{ ...iS, flex: 1, resize: "none", minHeight: 40 }} rows={2} placeholder="Frage zur AZAV-Kalkulation… (Enter = Senden)" value={chatIn} onChange={e => setChatIn(e.target.value)} onKeyDown={e => { if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();sendChat();}}} disabled={chatLoad} />
+                <button className="sbtn" onClick={sendChat} disabled={chatLoad||!chatIn.trim()}>Senden</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  React.createElement(App)
+);
+  </script>
+</body>
+</html>
